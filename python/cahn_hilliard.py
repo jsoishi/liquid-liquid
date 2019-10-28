@@ -1,10 +1,16 @@
-"""Test script to do Cahn_hilliard
+"""
+Test script for NIST Cahn-Hilliard benchmark.
+
+Usage:
+    cahn_hilliard.py <config_file>
 
 """
 import os
 import time
 import logging
+from configparser import ConfigParser
 import numpy as np
+import pathlib
 
 import dedalus.public as de
 
@@ -15,30 +21,44 @@ from filter_field import filter_field
 
 logger = logging.getLogger(__name__)
 
+from docopt import docopt
+
+# parse arguments
+args = docopt(__doc__)
+filename = pathlib.Path(args['<config_file>'])
+# Parse .cfg file to set global parameters for script
+config = ConfigParser()
+config.read(str(filename))
+logger.info("Using config file {}".format(filename))
+
 # parameters
-L = 200#1
-nx = 200#128
-ny = 200#128
+params = config['params']
 
-ampl = 1e-4
+L  = params.getfloat('L')
+nx = params.getint('nx')
+ny = params.getint('ny')
 
-# # diffusion coeff D = (λ γ1)/ε²
-# D = L**2
-# dx = L/nx
-#γ = 1
-#ε = 5e-4
+ampl = params.getfloat('ampl')
 
-κ = 2.
-ρₛ = 5.
-M = 5.
+κ  = params.getfloat('kappa')
+ρₛ = params.getfloat('rho_s')
+M  = params.getfloat('M')
 
+run_opts = config['run']
+dt = run_opts.getfloat('dt')
 ρ = 2*ρₛ
-data_dir = 'data'
 
 x = de.Fourier('x',nx,interval=[0, L], dealias=2.)
 y = de.Fourier('y',nx,interval=[0, L], dealias=2.)
 
 domain = de.Domain([x, y], grid_dtype='float')
+
+basedir = pathlib.Path('scratch')
+outdir = "CH_" + filename.stem
+data_dir = basedir/outdir
+if domain.dist.comm.rank == 0:
+    if not data_dir.exists():
+        data_dir.mkdir(parents=True)
 
 ch = de.IVP(domain, variables=['phi'])
 # ch.parameters['γ'] = γ
@@ -125,9 +145,13 @@ phi0['g'] = c0 + ε*(np.cos(a0*x)*np.cos(b0*y)+(np.cos(c0*x)*np.cos(d0*y))**2+np
 # phi0['g'] = 2*((phi0['g'] - phi_min)/(phi_max - phi_min)) - 1
 # phi0['g'] -= phi0['g'].mean()
 
-solver.stop_wall_time = 24*3600
-solver.stop_sim_time = 8000.
-solver.stop_iteration = np.inf#100
+solver.stop_wall_time = run_opts.getfloat('stop_wall_time')
+solver.stop_sim_time = run_opts.getfloat('stop_sim_time')
+
+if run_opts.getint('stop_iteration'):
+    solver.stop_iteration = run_opts.getint('stop_iteration')
+else:
+    solver.stop_iteration = np.inf
 
 flow = flow_tools.GlobalFlowProperty(solver, cadence=10)
 flow.add_property("integ(phi)", name="Cint")
@@ -140,8 +164,10 @@ logger.info("Inital Concentration =  {:10.7e}".format(C0))
 safety = 0.01
 dx = L/nx
 dt = safety * dx**2/(M*ρ)
-logger.info("dt = {:f}".format(dt))
-#dt = 0.04#1e-4
+logger.info("Calculated dt = {:f}".format(dt))
+if run_opts.getfloat('dt'):
+    dt = run_opts.getfloat('dt')
+logger.info("Running with dt = {:f}".format(dt))
 
 start  = time.time()
 while solver.ok:
