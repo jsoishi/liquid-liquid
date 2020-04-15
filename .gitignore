@@ -4,6 +4,10 @@ python/scratch/*
 python/frames/*
 python/data/*
 
+## Python
+
+*.pyc
+
 ## Core latex/pdflatex auxiliary files:
 *.aux
 *.lof
