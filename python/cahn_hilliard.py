@@ -37,6 +37,15 @@ params = config['params']
 L  = params.getfloat('L')
 nx = params.getint('nx')
 ny = params.getint('ny')
+try:
+    nz = params.getint('nz')
+except:
+    nz = None
+
+try:
+    mesh = [int(i) for i in params.get('mesh').split(',')]
+except:
+    mesh = None
 
 ampl = params.getfloat('ampl')
 
@@ -50,8 +59,17 @@ dt = run_opts.getfloat('dt')
 
 x = de.Fourier('x',nx,interval=[0, L], dealias=2.)
 y = de.Fourier('y',nx,interval=[0, L], dealias=2.)
+bases = [x, y]
 
-domain = de.Domain([x, y], grid_dtype='float')
+threeD = False
+if nz:
+    threeD = True
+    z = de.Fourier('z',nx,interval=[0, L], dealias=2.)
+    bases.append(z)
+else:
+    mesh = None
+
+domain = de.Domain(bases, grid_dtype='float', mesh=mesh)
 
 basedir = pathlib.Path('scratch')
 outdir = "CH_" + filename.stem
@@ -69,23 +87,28 @@ ch.parameters['ρ'] = ρ
 
 ch.substitutions["f"] = "ρ*(phi + 1)**2 * (1 - phi)**2"
 ch.substitutions["grad_en"] = "0.5*κ*(dx(phi)**2 + dy(phi)**2)"
-ch.substitutions["Lap(A)"] = "dx(dx(A)) + dy(dy(A))"
-ch.substitutions["DLap(A)"] = "dx(dx(dx(dx(A)))) + 2*dx(dx(dy(dy(A)))) + dy(dy(dy(dy(A))))"
+
+if threeD:
+    ch.substitutions["Lap(A)"] = "dx(dx(A)) + dy(dy(A)) + dz(dz(A))"
+    ch.substitutions["DLap(A)"] = "dx(dx(dx(dx(A)))) + 2*(dx(dx(dy(dy(A))) + dy(dy(dz(dz(A)))) + dx(dx(dz(dz(A)))))) + dy(dy(dy(dy(A)))) + dz(dz(dz(dz(A))))"
+else:
+    ch.substitutions["Lap(A)"] = "dx(dx(A)) + dy(dy(A))"
+    ch.substitutions["DLap(A)"] = "dx(dx(dx(dx(A)))) + 2*dx(dx(dy(dy(A)))) + dy(dy(dy(dy(A))))"
 #ch.add_equation("dt(phi) + M*κ*DLap(phi) + M*ρ*Lap(phi) = M*ρ*Lap(phi**3)")
 ch.add_equation("dt(phi) + M*κ*DLap(phi) = M*ρ*Lap(phi**3 - phi)")
 
 solver = ch.build_solver(de.timesteppers.SBDF2)
 
-analysis_tasks = []
-snap = solver.evaluator.add_file_handler(os.path.join(data_dir,'snapshots'), iter=100, max_writes=200)
-snap.add_task("phi")
-snap.add_task("phi", name='phi_c', layout='c')
-analysis_tasks.append(snap)
+# analysis_tasks = []
+# snap = solver.evaluator.add_file_handler(os.path.join(data_dir,'snapshots'), iter=100, max_writes=200)
+# snap.add_task("phi")
+# snap.add_task("phi", name='phi_c', layout='c')
+# analysis_tasks.append(snap)
 
-ts = solver.evaluator.add_file_handler(os.path.join(data_dir,'timeseries'), iter=10)
-ts.add_task("integ(f + grad_en)", name='free energy')
-ts.add_task("integ(f)", name='chemical free energy')
-ts.add_task("integ(grad_en)", name='gradient free energy')
+# ts = solver.evaluator.add_file_handler(os.path.join(data_dir,'timeseries'), iter=10)
+# ts.add_task("integ(f + grad_en)", name='free energy')
+# ts.add_task("integ(f)", name='chemical free energy')
+# ts.add_task("integ(grad_en)", name='gradient free energy')
 
 # Create initial conditions
 gshape = ch.domain.dist.grid_layout.global_shape(scales=ch.domain.dealias)
@@ -112,7 +135,10 @@ phi0 = solver.state['phi']
 # NIST benchmark
 c0 = 0
 ε = 0.01
-x, y = domain.grids()
+if threeD:
+    x, y, z = domain.grids()
+else:
+    x, y = domain.grids()
 #phi0['g'] = c0 + ε*(np.cos(0.105*x)*np.cos(0.11*y)+(np.cos(0.13*x)*np.cos(0.087*y))**2+np.cos(0.025*x-0.15*y)*np.cos(0.07*x-0.02*y))
 def fix_coeff(k, L):
     n = int(k*L/(2*np.pi))
@@ -149,7 +175,9 @@ solver.stop_wall_time = run_opts.getfloat('stop_wall_time')
 solver.stop_sim_time = run_opts.getfloat('stop_sim_time')
 
 if run_opts.getint('stop_iteration'):
-    solver.stop_iteration = run_opts.getint('stop_iteration')
+    stop_iteration = run_opts.getint('stop_iteration')
+    logger.info("Stopping on iteration {:d}".format(stop_iteration))
+    solver.stop_iteration = stop_iteration
 else:
     solver.stop_iteration = np.inf
 
@@ -158,7 +186,11 @@ flow.add_property("integ(phi)", name="Cint")
 flow.add_property("integ(f)", name="f")
 flow.add_property("integ(grad_en)", name="grad_en")
 
-C0 = phi0.integrate()['g'][0,0]
+if threeD:
+    index = [slice(0,1), slice(0,1), slice(0,1)]
+else:
+    index = [slice(0,1), slice(0,1)]
+C0 = np.asscalar(phi0.integrate()['g'][index])
 logger.info("Inital Concentration =  {:10.7e}".format(C0))
 
 safety = 0.01
@@ -181,6 +213,6 @@ stop = time.time()
 
 logger.info("Total Run time: {:5.2f} sec".format(stop-start))
 logger.info('beginning join operation')
-for task in analysis_tasks:
-    logger.info(task.base_path)
-    post.merge_analysis(task.base_path)
+# for task in analysis_tasks:
+#     logger.info(task.base_path)
+#     post.merge_analysis(task.base_path)
