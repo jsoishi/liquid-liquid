@@ -1,0 +1,23 @@
+\documentclass{article}
+
+
+\begin{document}
+
+\section{Computational Resources}
+\label{sec:comp}
+
+In order to estimate the total computational resources this project will require, we first compute a representational three-dimensional simulation of liquid-liquid phase separation.
+This is accomplished by solving a Cahn-Hilliard equation with varying material properties between the two phases.
+In order to adequately resolve the phase boundaries, we use $256^3$ Fourier modes.
+Dedalus can parallelize over $N-1$ dimensions, 2 in this case.
+On 256 Intel Xeon E5-2680 2.40GHz cores of the Bates College \emph{Leavitt} system, such a simulation takes $\mathbf{0.
+56}\ \mathrm{sec/iter}$.
+A typical run takes approximately 20,000 steps to reach a significatly phase-separated solution, thus requiring \textbf{2540} CPU-hours.
+Because Dedalus shows strong scaling down to approximately 8 pencils per core (a pencil is a one dimensional data slice along which Dedalus does a simultaneous matrix solve; in our case each pencil represents a $(k_x, k_y)$ mode).
+For our $256^3$ simulation parallelized over two dimensions, this translates to efficient scaling to \textbf{8192 cores}.
+At that core counts we would expect each simulation to take approximately \textbf{19 minutes}.
+For a more modest $256$ core parallelization, each simulation takes approximately $10$ hours.
+
+
+
+\end{document}
